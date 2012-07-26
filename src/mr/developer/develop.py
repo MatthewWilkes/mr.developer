@@ -616,6 +616,9 @@ class CmdStatus(Command):
         self.parser.add_argument("-v", "--verbose", dest="verbose",
                                action="store_true", default=False,
                                help="""Show output of VCS command.""")
+        self.parser.add_argument("--color", "--colour", dest="color",
+                               action="store_true", default=False,
+                               help="""Show URL and kind of package.""")
         self.parser.add_argument("package-regexp", nargs="*",
                                  help="A regular expression to match package names.")
         self.parser.set_defaults(func=self)
@@ -670,7 +673,16 @@ class CmdStatus(Command):
                         print "D",
                     else:
                         print " ",
-            print name
+            if status != 'clean' and (name in develeggs):
+                # in use and modified, red
+                print "\x1b[01;05;37;41m",
+            elif status == 'clean' and (name in develeggs):
+                # in use and unmodified, green
+                print "\x1b[01;32m",
+            elif name not in develeggs:
+                # Not in use
+                print "\x1b[01;34m",
+            print name, "\x1b[00m"
             if args.verbose:
                 output = output.strip()
                 if output:
