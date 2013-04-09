@@ -11,8 +11,10 @@ logger = common.logger
 
 if sys.version_info < (3, 0):
     b = lambda x: x
+    s = lambda x: x
 else:
     b = lambda x: x.encode('ascii')
+    s = lambda x: x.decode('ascii')
 
 
 class GitError(common.WCError):
@@ -29,10 +31,8 @@ class GitWorkingCopy(common.BaseWorkingCopy):
     # should make master and a lot of other conventional stuff configurable
     _upstream_name = "origin"
 
-    _executable_names = ['git', 'git.cmd']
-
     def __init__(self, source):
-        self.git_executable = common.which(*self._executable_names)
+        self.git_executable = common.which('git')
         if self.git_executable is None:
             logger.error("Cannot find git executable in PATH")
             sys.exit(1)
@@ -48,8 +48,6 @@ class GitWorkingCopy(common.BaseWorkingCopy):
                          "(%s) in source for %s",
                          source['branch'], source['rev'], source['name'])
             sys.exit(1)
-        if 'branch' not in source:
-            source['branch'] = 'master'
         super(GitWorkingCopy, self).__init__(source)
 
     @common.memoize
@@ -85,9 +83,8 @@ class GitWorkingCopy(common.BaseWorkingCopy):
             version = (int(version[0]), int(version[1]))
         if version < (1, 5):
             logger.error(
-                "Git version %s is unsupported, please upgrade" % \
-                    ".".join([str(v) for v in version])
-            )
+                "Git version %s is unsupported, please upgrade",
+                ".".join([str(v) for v in version]))
             sys.exit(1)
         return version
 
@@ -134,16 +131,26 @@ class GitWorkingCopy(common.BaseWorkingCopy):
         stdout, stderr = cmd.communicate()
         if cmd.returncode != 0:
             raise GitError("git cloning of '%s' failed.\n%s" % (name, stderr))
-        if 'branch' in self.source:
+        if 'branch' in self.source or 'rev' in self.source:
             stdout, stderr = self.git_switch_branch(stdout, stderr)
         if 'pushurl' in self.source:
             stdout, stderr = self.git_set_pushurl(stdout, stderr)
+
+        update_git_submodules = self.source.get('submodules', kwargs['submodules'])
+        if update_git_submodules in ['always', 'checkout']:
+            stdout, stderr, initialized = self.git_init_submodules(stdout, stderr)
+            # Update only new submodules that we just registered. this is for safety reasons
+            # as git submodule update on modified subomdules may cause code loss
+            for submodule in initialized:
+                stdout, stderr = self.git_update_submodules(stdout, stderr, submodule=submodule)
+                self.output((logger.info, "Initialized '%s' submodule at '%s' with git." % (name, submodule)))
+
         if kwargs.get('verbose', False):
             return stdout
 
     def git_switch_branch(self, stdout_in, stderr_in):
         path = self.source['path']
-        branch = self.source['branch']
+        branch = self.source.get('branch', 'master')
         rbp = self._remote_branch_prefix
         cmd = self.run_git(["branch", "-a"], cwd=path)
         stdout, stderr = cmd.communicate()
@@ -157,8 +164,8 @@ class GitWorkingCopy(common.BaseWorkingCopy):
         elif re.search(b("^(\*| ) %s$" % re.escape(branch)), stdout, re.M):
             # the branch is local, normal checkout will work
             argv = ["checkout", branch]
-        elif re.search("^  " + re.escape(rbp) + "\/" + re.escape(branch)
-                + "$", stdout, re.M):
+        elif re.search(b("^  " + re.escape(rbp) + "\/" + re.escape(branch)
+                + "$"), stdout, re.M):
             # the branch is not local, normal checkout won't work here
             argv = ["checkout", "-b", branch, "%s/%s" % (rbp, branch)]
         else:
@@ -191,6 +198,16 @@ class GitWorkingCopy(common.BaseWorkingCopy):
         elif 'branch' in self.source:
             stdout, stderr = self.git_switch_branch(stdout, stderr)
             stdout, stderr = self.git_merge_rbranch(stdout, stderr)
+
+        update_git_submodules = self.source.get('submodules', kwargs['submodules'])
+        if update_git_submodules in ['always']:
+            stdout, stderr, initialized = self.git_init_submodules(stdout, stderr)
+            # Update only new submodules that we just registered. this is for safety reasons
+            # as git submodule update on modified subomdules may cause code loss
+            for submodule in initialized:
+                stdout, stderr = self.git_update_submodules(stdout, stderr, submodule=submodule)
+                self.output((logger.info, "Initialized '%s' submodule at '%s' with git." % (name, submodule)))
+
         if kwargs.get('verbose', False):
             return stdout
 
@@ -210,11 +227,14 @@ class GitWorkingCopy(common.BaseWorkingCopy):
 
     def status(self, **kwargs):
         path = self.source['path']
-        cmd = self.run_git(["status"], cwd=path)
+        cmd = self.run_git(["status", "-s", "-b"], cwd=path)
         stdout, stderr = cmd.communicate()
         lines = stdout.strip().split(b('\n'))
-        if b('nothing to commit (working directory clean)') in lines[-1]:
-            status = 'clean'
+        if len(lines) == 1:
+            if b('ahead') in lines[0]:
+                status = 'ahead'
+            else:
+                status = 'clean'
         else:
             status = 'dirty'
         if kwargs.get('verbose', False):
@@ -232,7 +252,7 @@ class GitWorkingCopy(common.BaseWorkingCopy):
         stdout, stderr = cmd.communicate()
         if cmd.returncode != 0:
             raise GitError("git remote of '%s' failed.\n%s" % (name, stderr))
-        return (self.source['url'] in stdout.split())
+        return (self.source['url'] in s(stdout).split())
 
     def update(self, **kwargs):
         name = self.source['name']
@@ -243,15 +263,39 @@ class GitWorkingCopy(common.BaseWorkingCopy):
         return self.git_update(**kwargs)
 
     def git_set_pushurl(self, stdout_in, stderr_in):
-        cmd = self.run_git([
+        cmd = self.run_git(
+            [
                 "config",
                 "remote.%s.pushurl" % self._upstream_name,
-                self.source['pushurl'],
-            ], cwd=self.source['path'])
+                self.source['pushurl']],
+            cwd=self.source['path'])
         stdout, stderr = cmd.communicate()
 
         if cmd.returncode != 0:
             raise GitError("git config remote.%s.pushurl %s \nfailed.\n" % (self._upstream_name, self.source['pushurl']))
         return (stdout_in + stdout, stderr_in + stderr)
 
-common.workingcopytypes['git'] = GitWorkingCopy
+    def git_init_submodules(self, stdout_in, stderr_in):
+        cmd = self.run_git(
+            [
+                'submodule',
+                'init'],
+            cwd=self.source['path'])
+        stdout, stderr = cmd.communicate()
+        if cmd.returncode != 0:
+            raise GitError("git submodule init failed.\n")
+        initialized_submodules = re.findall(r'Submodule\s+[\'"](.*?)[\'"]\s+\(.+\)', s(stdout))
+        return (stdout_in + stdout, stderr_in + stderr, initialized_submodules)
+
+    def git_update_submodules(self, stdout_in, stderr_in, submodule='all'):
+        params = ['submodule',
+                  'update']
+        if submodule != 'all':
+            params.append(submodule)
+        cmd = self.run_git(
+            params,
+            cwd=self.source['path'])
+        stdout, stderr = cmd.communicate()
+        if cmd.returncode != 0:
+            raise GitError("git submodule update failed.\n")
+        return (stdout_in + stdout, stderr_in + stderr)

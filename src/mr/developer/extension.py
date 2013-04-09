@@ -1,4 +1,4 @@
-from mr.developer.common import memoize, WorkingCopies, Config, workingcopytypes
+from mr.developer.common import memoize, WorkingCopies, Config, get_workingcopytypes
 import logging
 import os
 import re
@@ -28,7 +28,14 @@ class Extension(object):
     def get_workingcopies(self):
         return WorkingCopies(
             self.get_sources(),
-            threads=self.get_config().threads)
+            threads=self.get_threads())
+
+    @memoize
+    def get_threads(self):
+        threads = int(self.buildout['buildout'].get(
+            'mr.developer-threads',
+            self.get_config().threads))
+        return threads
 
     @memoize
     def get_sources_dir(self):
@@ -46,6 +53,7 @@ class Extension(object):
         sources = {}
         sources_section = self.buildout['buildout'].get('sources', 'sources')
         section = self.buildout.get(sources_section, {})
+        workingcopytypes = get_workingcopytypes()
         for name in section:
             info = section[name].split()
             options = []
@@ -63,10 +71,6 @@ class Extension(object):
                 logger.error("Unknown repository type '%s' for source '%s'." % (kind, name))
                 sys.exit(1)
             url = info[1]
-
-            for rewrite in self.get_config().rewrites:
-                if len(rewrite) == 2 and url.startswith(rewrite[0]):
-                    url = "%s%s" % (rewrite[1], url[len(rewrite[0]):])
 
             path = None
             if len(info) > 2:
@@ -109,6 +113,9 @@ class Extension(object):
                 else:
                     source['path'] = os.path.join(sources_dir, name)
 
+            for rewrite in self.get_config().rewrites:
+                rewrite(source)
+
             sources[name] = source
 
         return sources
@@ -136,6 +143,9 @@ class Extension(object):
 
     def get_always_checkout(self):
         return self.buildout['buildout'].get('always-checkout', False)
+
+    def get_update_git_submodules(self):
+        return self.buildout['buildout'].get('update-git-submodules', 'always')
 
     def get_develop_info(self):
         auto_checkout = self.get_auto_checkout()
@@ -169,7 +179,7 @@ class Extension(object):
         develop = []
         for path in develeggs.itervalues():
             if path.startswith(self.buildout_dir):
-                develop.append(path[len(self.buildout_dir)+1:])
+                develop.append(path[len(self.buildout_dir) + 1:])
             else:
                 develop.append(path)
         return develop, develeggs, versions
@@ -212,19 +222,22 @@ class Extension(object):
         root_logger = logging.getLogger()
         workingcopies = self.get_workingcopies()
         always_checkout = self.get_always_checkout()
+        update_git_submodules = self.get_update_git_submodules()
         always_accept_server_certificate = self.get_always_accept_server_certificate()
         (develop, develeggs, versions) = self.get_develop_info()
 
         packages = set(auto_checkout)
         sources = self.get_sources()
         for pkg in develeggs:
-            if pkg in sources and sources[pkg].get('update'):
-                packages.add(pkg)
+            if pkg in sources:
+                if always_checkout or sources[pkg].get('update'):
+                    packages.add(pkg)
 
         offline = self.buildout['buildout'].get('offline', '').lower() == 'true'
         workingcopies.checkout(sorted(packages),
                                verbose=root_logger.level <= 10,
                                update=always_checkout,
+                               submodules=update_git_submodules,
                                always_accept_server_certificate=always_accept_server_certificate,
                                offline=offline)
 
@@ -236,6 +249,7 @@ class Extension(object):
             zc.buildout.easy_install.default_versions(dict(versions))
 
         self.buildout['buildout']['develop'] = "\n".join(develop)
+        self.buildout['buildout']['sources-dir'] = self.get_sources_dir()
 
         self.add_fake_part()
 

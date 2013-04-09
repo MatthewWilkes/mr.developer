@@ -1,6 +1,8 @@
 from mr.developer import common
+from urlparse import urlparse, urlunparse
 try:
     import xml.etree.ElementTree as etree
+    etree  # shutup pyflakes
 except ImportError:
     import elementtree.ElementTree as etree
 import getpass
@@ -8,6 +10,14 @@ import os
 import re
 import subprocess
 import sys
+
+if sys.version_info < (3, 0):
+    b = lambda x: x
+    s = lambda x: x
+else:
+    b = lambda x: x.encode('ascii')
+    s = lambda x: x.decode('ascii')
+
 
 logger = common.logger
 
@@ -36,6 +46,27 @@ class SVNWorkingCopy(common.BaseWorkingCopy):
     _svn_auth_cache = {}
     _svn_cert_cache = {}
 
+    @classmethod
+    def _clear_caches(klass):
+        klass._svn_info_cache.clear()
+        klass._svn_auth_cache.clear()
+        klass._svn_cert_cache.clear()
+
+    def _normalized_url_rev(self):
+        url = urlparse(self.source['url'])
+        rev = None
+        if '@' in url[2]:
+            path, rev = url[2].split('@', 1)
+            url = list(url)
+            url[2] = path
+        if 'rev' in self.source and 'revision' in self.source:
+            raise ValueError("The source definition of '%s' contains duplicate revision options." % self.source['name'])
+        if rev is not None and ('rev' in self.source or 'revision' in self.source):
+            raise ValueError("The url of '%s' contains a revision and there is an additional revision option." % self.source['name'])
+        elif rev is None:
+            rev = self.source.get('revision', self.source.get('rev'))
+        return urlunparse(url), rev
+
     def __init__(self, *args, **kwargs):
         common.BaseWorkingCopy.__init__(self, *args, **kwargs)
         self._svn_check_version()
@@ -52,10 +83,10 @@ class SVNWorkingCopy(common.BaseWorkingCopy):
                 sys.exit(1)
             raise
         stdout, stderr = cmd.communicate()
-        lines = stdout.split('\n')
+        lines = stdout.split(b('\n'))
         version = None
         if len(lines):
-            version = re.search(r'(\d+)\.(\d+)(\.\d+)?', lines[0])
+            version = re.search(b('(\d+)\.(\d+)(\.\d+)?'), lines[0])
             if version is not None:
                 version = version.groups()
                 if len(version) == 3:
@@ -64,7 +95,7 @@ class SVNWorkingCopy(common.BaseWorkingCopy):
                     version = (int(version[0]), int(version[1]))
         if (cmd.returncode != 0) or (version is None):
             logger.error("Couldn't determine the version of 'svn' command.")
-            logger.error("Subversion output:\n%s\n%s" % (stdout, stderr))
+            logger.error("Subversion output:\n%s\n%s" % (s(stdout), s(stderr)))
             sys.exit(1)
         if (version < (1, 5)) and not _svn_version_warning:
             logger.warning("The installed 'svn' command is too old. Expected 1.5 or newer, got %s." % ".".join([str(x) for x in version]))
@@ -122,7 +153,7 @@ class SVNWorkingCopy(common.BaseWorkingCopy):
                 print "\n".join(lines[:-1])
                 while 1:
                     answer = raw_input("(R)eject or accept (t)emporarily? ")
-                    if answer.lower() in ['r','t']:
+                    if answer.lower() in ['r', 't']:
                         break
                     else:
                         print "Invalid answer, type 'r' for reject or 't' for temporarily."
@@ -141,9 +172,9 @@ class SVNWorkingCopy(common.BaseWorkingCopy):
         args = ["svn", "checkout", url, path]
         stdout, stderr, returncode = self._svn_communicate(args, url, **kwargs)
         if returncode != 0:
-            raise SVNError("Subversion checkout for '%s' failed.\n%s" % (name, stderr))
+            raise SVNError("Subversion checkout for '%s' failed.\n%s" % (name, s(stderr)))
         if kwargs.get('verbose', False):
-            return stdout
+            return s(stdout)
 
     def _svn_communicate(self, args, url, **kwargs):
         auth = self._svn_auth_get(url)
@@ -168,8 +199,8 @@ class SVNWorkingCopy(common.BaseWorkingCopy):
                                stderr=subprocess.PIPE)
         stdout, stderr = cmd.communicate()
         if cmd.returncode != 0:
-            lines = stderr.strip().split('\n')
-            if 'authorization failed' in lines[-1]:
+            lines = stderr.strip().split(b('\n'))
+            if 'authorization failed' in lines[-1] or 'Could not authenticate to server' in lines[-1]:
                 raise SVNAuthorizationError(stderr.strip())
             if 'Server certificate verification failed: issuer is not trusted' in lines[-1]:
                 cmd = subprocess.Popen(interactive_args,
@@ -191,7 +222,7 @@ class SVNWorkingCopy(common.BaseWorkingCopy):
                                stderr=subprocess.PIPE)
         stdout, stderr = cmd.communicate()
         if cmd.returncode != 0:
-            raise SVNError("Subversion info for '%s' failed.\n%s" % (name, stderr))
+            raise SVNError("Subversion info for '%s' failed.\n%s" % (name, s(stderr)))
         info = etree.fromstring(stdout)
         result = {}
         entry = info.find('entry')
@@ -213,30 +244,28 @@ class SVNWorkingCopy(common.BaseWorkingCopy):
     def _svn_switch(self, **kwargs):
         name = self.source['name']
         path = self.source['path']
-        url = self.source['url']
+        url, rev = self._normalized_url_rev()
         args = ["svn", "switch", url, path]
-        rev = self.source.get('revision', self.source.get('rev'))
         if rev is not None and not rev.startswith('>'):
             args.insert(2, '-r%s' % rev)
         stdout, stderr, returncode = self._svn_communicate(args, url, **kwargs)
         if returncode != 0:
-            raise SVNError("Subversion switch of '%s' failed.\n%s" % (name, stderr))
+            raise SVNError("Subversion switch of '%s' failed.\n%s" % (name, s(stderr)))
         if kwargs.get('verbose', False):
-            return stdout
+            return s(stdout)
 
     def _svn_update(self, **kwargs):
         name = self.source['name']
         path = self.source['path']
-        url = self.source['url']
+        url, rev = self._normalized_url_rev()
         args = ["svn", "update", path]
-        rev = self.source.get('revision', self.source.get('rev'))
         if rev is not None and not rev.startswith('>'):
             args.insert(2, '-r%s' % rev)
         stdout, stderr, returncode = self._svn_communicate(args, url, **kwargs)
         if returncode != 0:
-            raise SVNError("Subversion update of '%s' failed.\n%s" % (name, stderr))
+            raise SVNError("Subversion update of '%s' failed.\n%s" % (name, s(stderr)))
         if kwargs.get('verbose', False):
-            return stdout
+            return s(stdout)
 
     def svn_checkout(self, **kwargs):
         name = self.source['name']
@@ -278,22 +307,11 @@ class SVNWorkingCopy(common.BaseWorkingCopy):
 
     def matches(self):
         info = self._svn_info()
-        url = self.source['url']
-        rev = info.get('revision')
-        match = re.search('^(.+)@(\\d+)$', url)
-        if match:
-            url = match.group(1)
-            rev = match.group(2)
-        if 'rev' in self.source and 'revision' in self.source:
-            raise ValueError("The source definition of '%s' contains duplicate revision options." % self.source['name'])
-        elif ('rev' in self.source or 'revision' in self.source) and match:
-            raise ValueError("The url of '%s' contains a revision and there is an additional revision option." % self.source['name'])
-        elif 'rev' in self.source:
-            rev = self.source['rev']
-        elif 'revision' in self.source:
-            rev = self.source['revision']
+        url, rev = self._normalized_url_rev()
         if url.endswith('/'):
             url = url[:-1]
+        if rev is None:
+            rev = info.get('revision')
         if rev.startswith('>='):
             return (info.get('url') == url) and (int(info.get('revision')) >= int(rev[2:]))
         elif rev.startswith('>'):
@@ -309,7 +327,7 @@ class SVNWorkingCopy(common.BaseWorkingCopy):
                                stderr=subprocess.PIPE)
         stdout, stderr = cmd.communicate()
         if cmd.returncode != 0:
-            raise SVNError("Subversion status for '%s' failed.\n%s" % (name, stderr))
+            raise SVNError("Subversion status for '%s' failed.\n%s" % (name, s(stderr)))
         info = etree.fromstring(stdout)
         clean = True
         for target in info.findall('target'):
@@ -328,8 +346,8 @@ class SVNWorkingCopy(common.BaseWorkingCopy):
                                    stderr=subprocess.PIPE)
             stdout, stderr = cmd.communicate()
             if cmd.returncode != 0:
-                raise SVNError("Subversion status for '%s' failed.\n%s" % (name, stderr))
-            return status, stdout
+                raise SVNError("Subversion status for '%s' failed.\n%s" % (name, s(stderr)))
+            return status, s(stdout)
         else:
             return status
 
@@ -345,5 +363,3 @@ class SVNWorkingCopy(common.BaseWorkingCopy):
         if status != 'clean' and not force:
             raise SVNError("Can't update package '%s' because it's dirty." % name)
         return self.svn_update(**kwargs)
-
-common.workingcopytypes['svn'] = SVNWorkingCopy

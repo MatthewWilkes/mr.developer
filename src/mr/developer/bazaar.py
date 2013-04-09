@@ -4,8 +4,10 @@ import subprocess
 
 logger = common.logger
 
+
 class BazaarError(common.WCError):
     pass
+
 
 class BazaarWorkingCopy(common.BaseWorkingCopy):
     def bzr_branch(self, **kwargs):
@@ -100,5 +102,3 @@ class BazaarWorkingCopy(common.BaseWorkingCopy):
             raise BazaarError(
                 "Can't update package %r because it's dirty." % name)
         return self.bzr_pull(**kwargs)
-
-common.workingcopytypes['bzr'] = BazaarWorkingCopy

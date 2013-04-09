@@ -9,6 +9,7 @@ logger = common.logger
 class DarcsError(common.WCError):
     pass
 
+
 class DarcsWorkingCopy(common.BaseWorkingCopy):
     def darcs_checkout(self, **kwargs):
         name = self.source['name']
@@ -110,5 +111,3 @@ class DarcsWorkingCopy(common.BaseWorkingCopy):
         if self.status() != 'clean' and not kwargs.get('force', False):
             raise DarcsError("Can't update package '%s' because it's dirty." % name)
         return self.darcs_update(**kwargs)
-
-common.workingcopytypes['darcs'] = DarcsWorkingCopy

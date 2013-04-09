@@ -14,6 +14,8 @@ Introduction
 buildouts containing lots of packages, of which you only want to develop some.
 The basic idea comes from Wichert Akkerman's plonenext_ effort.
 
+.. image:: https://secure.travis-ci.org/fschulze/mr.developer.png
+
 .. _`zc.buildout`: http://pypi.python.org/pypi/zc.buildout
 .. _plonenext: http://svn.plone.org/svn/plone/plonenext/3.3/README.txt
 
@@ -47,9 +49,22 @@ This enables additional ``[buildout]`` options:
   buildout run. If set to ``force``, then packages are updated even when
   they are dirty instead of asking interactively.
 
+``update-git-submodules``
+  This defaults to ``always``. If it's ``always``, then submodules present
+  in each package in develompent will be registered and updated on checkout and
+  new ones on updates via the develop command. If you don't want to initialize any submodule,
+  set value to ``never``. If you set the value to ``checkout``,
+  code inside submodules will be pulled only the first time, so the ``develop up`` command
+  will leave the submodule empty. Note that update only initializes
+  new submodules, it doesn't pull newest code from original submodule repo.
+
 ``always-accept-server-certificate``
   This defaults to ``false``. If it's ``true``, invalid server
   certificates are accepted without asking (for subversion repositories).
+
+``mr.developer-threads``
+  This sets the number of threads used for parallel checkouts. See
+  `Lockups during checkouts and updates`_ why you might need this.
 
 The format of entries in the ``[sources]`` section is::
 
@@ -94,6 +109,12 @@ Common options
   but the package isn't added to the ``develop`` buildout option and the
   ``activate`` and ``deactivate`` commands skip the package.
 
+  The ``newest_tag`` option allows you to checkout/update to the newest tag.
+  Possible values of the option are "true" and "false".
+  The ``newest_tag_prefix`` option allows you to limit the selection of tags to
+  those which start with the prefix.
+  These two options currently only work for ``cvs`` and ``hg``.
+
 ``svn``
   The ``url`` is one of the urls supported by subversion.
 
@@ -115,6 +136,10 @@ Common options
   The ``pushurl`` options allows you to explicitly separate push url from pull
   url, configured by git config.
 
+  The ``submodules`` option allows you to initialize existing submodules.
+  Default value is controled by the buildout option ``update-git-submodules``.
+  Possible values are the same described before in ``update-git-submodules`` option,
+
   Note that the ``branch`` and ``rev`` option are mutually exclusive.
 
 ``hg``
@@ -123,7 +148,7 @@ Common options
 
   The ``rev`` option allows you to force a specific revision
   (hash, tag, branch) to be checked out after buildout
-  
+
 ``bzr``
   Currently no additional options.
 
@@ -135,6 +160,9 @@ Common options
   environment variable.
   The ``tag`` option forces checkout/update of the given tag instead of CVS
   HEAD.
+
+  The ``tag_file`` option defines from which file tags will be read (in case of
+  using ``newest_tag``).  Default value is "setup.py".
 
 ``fs``
   This allows you to add packages on the filesystem without a version
@@ -164,6 +192,64 @@ If you checked out the source code of a package, you must run buildout again.
 The new package will then be marked as a development egg and have its version
 pin cleared (if any). You can control the list of development eggs explicitely
 with the ``activate`` and ``deactivate`` commands.
+
+Configuration
+=============
+
+You can add options to your global ``~/.buildout/mr.developer.cfg`` or local
+``.mr.developer-options.cfg`` in your buildout. Don't ever edit
+``.mr.developer.cfg`` in your buildout though, it's generated automatically.
+
+In the ``[mr.developer]`` section you have the following options.
+
+``threads``
+  This sets the number of threads used for parallel checkouts. See
+  `Lockups during checkouts and updates`_ why you might need this.
+
+In the ``[rewrites]`` section you can setup rewrite rules for sources. This is
+useful if you want to provide a buildout with sources to repositories which have
+different URLs for repositories which are read only for anonymous users. In that
+case developers can add a URL rewrite which automatically changes the URL to a
+writable repository.
+
+The rewrite rules can have multiple operators:
+
+``=``
+  Matches the exact string. Useful to only operated on sources of a certain kind
+  and similar things. This doesn't rewrite anything, but limits the rule.
+
+``~=``
+  Matches with a regular expression. This doesn't rewrite anything, but limits
+  the rule.
+
+``~``
+  This runs a regular expression substitution. The substitute is read from the
+  next line. You can use groups in the expression and the backslash syntax in
+  the substitute. See `re.sub`_ documentation.
+
+.. _`re.sub`: http://docs.python.org/2/library/re.html#re.sub
+
+The following are useful examples::
+
+  [rewrites]
+
+  plone_svn =
+    url ~ ^http://svn.plone.org/svn/
+    https://svn.plone.org/svn/
+
+  github =
+    url ~ ^https://github.com/
+    git@github.com:
+    kind = git
+
+  my_mrdeveloper_fork =
+    url ~ fschulze(/mr.developer.git)
+    me\1
+
+  my_mrdeveloper_fork_alternate =
+    url ~= fschulze/mr.developer.git
+    url ~ fschulze/
+    me/
 
 Troubleshooting
 ===============
@@ -204,5 +290,7 @@ Especially on multicore machines, there is an issue that you can get lockups
 because of the parallel checkouts. You can configure the number of threads used
 for this in ``.mr.developer.cfg`` in the buildout root of your project or
 globally in ``~/.buildout/mr.developer.cfg`` through the ``threads`` option
-in the ``[mr.developer]`` section. Setting it to ``1`` should fix these issues,
-but this disables parallel checkouts and makes the process a bit slower.
+in the ``[mr.developer]`` section or in your buildout in the ``buildout``
+section with the ``mr.developer-threads`` option. Setting it to ``1`` should
+fix these issues, but this disables parallel checkouts and makes the process a
+bit slower.

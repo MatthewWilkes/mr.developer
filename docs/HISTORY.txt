@@ -1,13 +1,104 @@
 Changelog
 =========
 
-1.22 - Unreleased
+1.26 - Unreleased
 -----------------
+
+
+1.25 - 2013-03-15
+-----------------
+
+* Git submodules support.
+  [sunbit]
+
+* Added `newest_tag` option for mercurial and cvs.
+  [kkujawinski, fschulze]
+
+* Python 3 fixes.
+  [fschulze, jajadinimueter (Florian Mueller)]
+
+* Fix revision pinning. Refs #113
+  [do3cc (Patrick Gerken)]
+
+* Properly line up the output of ``status``.
+  [fschulze]
+
+1.24 - 2013-01-29
+-----------------
+
+* Mercurial now switches branches.
+  [bubenkoff (Anatoly Bubenkov), fschulze]
+
+* Fix gitsvn/gitify working copy type which was broken since 1.22.
+  [rpatterson (Ross Patterson)]
+
+* Fix deactivate command which was broken since 1.22. Refs #105
+  [fschulze, icemac]
+
+1.23 - 2012-11-28
+-----------------
+
+* Unit tests run with Python 2.4, 2.5, 2.6, 2.7 and 3.2 now.
+  [fschulze]
+
+* Officially added source rewrites. Refs #56
+  [fschulze]
+
+* Add additional optional config file ``.mr.developer-options.cfg`` which is
+  read from the buildout directory for local version controllable options.
+  [fschulze]
+
+* Update all activated packages during buildout if ``always-checkout`` is true
+  instead of only the ones in the ``auto-checkout`` list or with the ``update``
+  option set. Refs #95
+  [fschulze]
+
+* Fix asking for password for svn with basic authentication. Refs #100
+  [MordicusEtCubitus]
+
+* Fixed regressions in svn module. Refs #37
+  [fschulze, evilbungle (Alan Hoey)]
+
+* Fixed branch checkout for git on Python 3.
+  [mitchellrj]
+
+* Fixed subversion checkout on Python 3.
+  [mitchellrj]
+
+1.22 - 2012-10-13
+-----------------
+
+* If you set threads to 1, then we don't use any separate thread anymore, the
+  actions are now done in the main thread.
+  [fschulze]
+
+* Allow configuration of the number of threads used through the buildout config
+  by setting the ``mr.developer-threads`` option in the ``buildout`` section.
+  [fschulze]
+
+* For git repositories the ``status`` command shows you when your local branch
+  is ahead of the remote branch.
+  [fschulze]
+
+* Always make ``sources-dir`` option available in buildout, even if it's set
+  to the default. Fixes #49
+  [fschulze]
+
+* Parse revision from url for all svn commands. Fixes #37
+  [fschulze]
+
+* Use entry points to allow adding and overwriting working copy types via
+  addon packages.
+  [fschulze]
 
 * Fixed ValueError in verbose status for filesystem and gitsvn sources.
   [maurits]
 
-* Fixed some exceptions occurring when using with Python 3. [icemac]
+* Fixed some exceptions occurring when using with Python 3.
+  [icemac (Michael Howitz)]
+
+* On Windows, use the PATHEXT environment variable to find the git executable.
+  [kleist]
 
 1.21 - 2012-04-11
 -----------------
@@ -238,7 +329,7 @@ Changelog
   [fschulze]
 
 * Fix purging on windows.
-  [kleist]
+  [kleist (Karl Johan Kleist)]
 
 * Fix compatibility with Python < 2.6.
   [fschulze, vincentfretin]
@@ -289,7 +380,7 @@ Changelog
   [fschulze]
 
 * Added support for Concurrent Versions System (CVS).
-  [sargo]
+  [sargo (Wojciech Lichota)]
 
 1.5 - 2009-11-19
 ----------------

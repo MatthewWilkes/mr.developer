@@ -64,7 +64,7 @@ class Command(object):
         self.develop = develop
 
     def get_workingcopies(self, sources):
-        return WorkingCopies(sources, threads=self.develop.config.threads)
+        return WorkingCopies(sources, threads=self.develop.threads)
 
     @memoize
     def get_packages(self, args, auto_checkout=False,
@@ -102,8 +102,8 @@ class Command(object):
 class CmdActivate(Command):
     def __init__(self, develop):
         Command.__init__(self, develop)
-        description="Add packages to the list of development packages."
-        self.parser=self.develop.parsers.add_parser(
+        description = "Add packages to the list of development packages."
+        self.parser = self.develop.parsers.add_parser(
             "activate",
             description=description)
         self.develop.parsers._name_parser_map["a"] = self.develop.parsers._name_parser_map["activate"]
@@ -148,7 +148,7 @@ class CmdActivate(Command):
 class CmdCheckout(Command):
     def __init__(self, develop):
         Command.__init__(self, develop)
-        self.parser=self.develop.parsers.add_parser(
+        self.parser = self.develop.parsers.add_parser(
             "checkout",
             description="Make a checkout of the packages matching the regular expressions and add them to the list of development packages.")
         self.develop.parsers._name_parser_map["co"] = self.develop.parsers._name_parser_map["checkout"]
@@ -172,6 +172,7 @@ class CmdCheckout(Command):
             workingcopies = self.get_workingcopies(self.develop.sources)
             workingcopies.checkout(sorted(packages),
                                    verbose=args.verbose,
+                                   submodules=self.develop.update_git_submodules,
                                    always_accept_server_certificate=self.develop.always_accept_server_certificate)
             for name in sorted(packages):
                 source = self.develop.sources[name]
@@ -189,8 +190,8 @@ class CmdCheckout(Command):
 class CmdDeactivate(Command):
     def __init__(self, develop):
         Command.__init__(self, develop)
-        description="Remove packages from the list of development packages."
-        self.parser=self.develop.parsers.add_parser(
+        description = "Remove packages from the list of development packages."
+        self.parser = self.develop.parsers.add_parser(
             "deactivate",
             description=description)
         self.develop.parsers._name_parser_map["d"] = self.develop.parsers._name_parser_map["deactivate"]
@@ -224,7 +225,7 @@ class CmdDeactivate(Command):
             if not source.get('egg', True):
                 logger.warning("The package '%s' isn't an egg." % name)
                 continue
-            if config.develop.get(name) != False:
+            if config.develop.get(name) is not False:
                 config.develop[name] = False
                 logger.info("Deactivated '%s'." % name)
                 changed = True
@@ -236,7 +237,7 @@ class CmdDeactivate(Command):
 class CmdHelp(Command):
     def __init__(self, develop):
         Command.__init__(self, develop)
-        self.parser=self.develop.parsers.add_parser(
+        self.parser = self.develop.parsers.add_parser(
             "help",
             description="Show help on the given command or about the whole script if none given.")
         self.develop.parsers._name_parser_map["h"] = self.develop.parsers._name_parser_map["help"]
@@ -245,12 +246,27 @@ class CmdHelp(Command):
         self.parser.add_argument("--rst", dest="rst",
                                action="store_true", default=False,
                                help="""Print help for all commands in reStructuredText format.""")
+        self.parser.add_argument('-z', '--zsh',
+                            action='store_true',
+                            help="Print info for zsh autocompletion")
         self.parser.add_argument("command", nargs="?", help="The command you want to see the help of.")
         self.parser.set_defaults(func=self)
 
     def __call__(self, args):
         develop = self.develop
         choices = develop.parsers.choices
+        if args.zsh:
+            choices = [x for x in choices if x != 'pony']
+            if args.command is None:
+                print "\n".join(choices)
+            else:
+                if args.command == 'help':
+                    print "\n".join(choices)
+                elif args.command in ('purge', 'up', 'update'):
+                    print "\n".join(self.get_packages(None, checked_out=True))
+                elif args.command not in ('pony', 'rebuild'):
+                    print "\n".join(self.get_packages(None))
+            return
         if args.command in choices:
             print choices[args.command].format_help()
             return
@@ -279,7 +295,7 @@ class CmdHelp(Command):
                 else:
                     header = name
                 print header
-                print "-"*len(header)
+                print "-" * len(header)
                 print
                 print "::"
                 print
@@ -300,8 +316,8 @@ class CmdHelp(Command):
 class CmdInfo(Command):
     def __init__(self, develop):
         Command.__init__(self, develop)
-        description="Lists informations about packages."
-        self.parser=self.develop.parsers.add_parser(
+        description = "Lists informations about packages."
+        self.parser = self.develop.parsers.add_parser(
             "info",
             help=description,
             description=description)
@@ -342,13 +358,13 @@ class CmdInfo(Command):
             source = self.develop.sources[name]
             if args.info:
                 for key in args.info:
-                    if key=='name':
+                    if key == 'name':
                         print name,
-                    elif key=='path':
+                    elif key == 'path':
                         print source['path'],
-                    elif key=='type':
+                    elif key == 'type':
                         print source['kind'],
-                    elif key=='url':
+                    elif key == 'url':
                         print source['url'],
                 print
             else:
@@ -362,8 +378,8 @@ class CmdInfo(Command):
 class CmdList(Command):
     def __init__(self, develop):
         Command.__init__(self, develop)
-        description="Lists tracked packages."
-        self.parser=self.develop.parsers.add_parser(
+        description = "Lists tracked packages."
+        self.parser = self.develop.parsers.add_parser(
             "list",
             formatter_class=HelpFormatter,
             description=description)
@@ -429,7 +445,7 @@ class CmdList(Command):
 class CmdPony(Command):
     def __init__(self, develop):
         Command.__init__(self, develop)
-        self.parser=self.develop.parsers.add_parser(
+        self.parser = self.develop.parsers.add_parser(
             "pony",
             description="It should be easy to develop a pony!")
         self.parser.set_defaults(func=self)
@@ -466,13 +482,16 @@ class CmdPony(Command):
 class CmdPurge(Command):
     def __init__(self, develop):
         Command.__init__(self, develop)
-        self.parser=self.develop.parsers.add_parser(
+        description = textwrap.dedent("""\
+            Remove checked out packages which aren't active anymore.
+
+            Only 'svn' packages can be purged, because other repositories may contain unrecoverable files even when not marked as 'dirty'.""")
+        self.parser = self.develop.parsers.add_parser(
             "purge",
             formatter_class=HelpFormatter,
-            description=textwrap.dedent("""\
-                Remove checked out packages which aren't active anymore.
-
-                Only 'svn' packages can be purged, because other repositories may contain unrecoverable files even when not marked as 'dirty'."""))
+            description=description)
+        self.develop.parsers._choices_actions.append(ChoicesPseudoAction(
+            "purge", help=description))
         self.parser.add_argument("-n", "--dry-run", dest="dry_run",
                                action="store_true", default=False,
                                help="""Don't actually remove anything, just print the paths which would be removed.""")
@@ -486,7 +505,7 @@ class CmdPurge(Command):
     def handle_remove_readonly(self, func, path, exc):
         excvalue = exc[1]
         if func in (os.rmdir, os.remove) and excvalue.errno == errno.EACCES:
-            os.chmod(path, stat.S_IRWXU | stat.S_IRWXG | stat.S_IRWXO) # 0777
+            os.chmod(path, stat.S_IRWXU | stat.S_IRWXG | stat.S_IRWXO)  # 0777
             func(path)
         else:
             raise
@@ -506,7 +525,7 @@ class CmdPurge(Command):
             source = self.develop.sources[name]
             path = source['path']
             if path.startswith(buildout_dir):
-                path = path[len(buildout_dir)+1:]
+                path = path[len(buildout_dir) + 1:]
             need_force = False
             if source['kind'] != 'svn':
                 need_force = True
@@ -538,8 +557,8 @@ class CmdPurge(Command):
 class CmdRebuild(Command):
     def __init__(self, develop):
         Command.__init__(self, develop)
-        description="Run buildout with the last used arguments."
-        self.parser=self.develop.parsers.add_parser(
+        description = "Run buildout with the last used arguments."
+        self.parser = self.develop.parsers.add_parser(
             "rebuild",
             description=description)
         self.develop.parsers._name_parser_map["rb"] = self.develop.parsers._name_parser_map["rebuild"]
@@ -567,7 +586,7 @@ class CmdRebuild(Command):
 class CmdReset(Command):
     def __init__(self, develop):
         Command.__init__(self, develop)
-        self.parser=self.develop.parsers.add_parser(
+        self.parser = self.develop.parsers.add_parser(
             "reset",
             help="Resets the packages develop status.",
             description="Resets the packages develop status. This is useful when switching to a new buildout configuration.")
@@ -604,7 +623,7 @@ class CmdReset(Command):
 class CmdStatus(Command):
     def __init__(self, develop):
         Command.__init__(self, develop)
-        self.parser=self.develop.parsers.add_parser(
+        self.parser = self.develop.parsers.add_parser(
             "status",
             formatter_class=HelpFormatter,
             description=textwrap.dedent("""\
@@ -618,6 +637,7 @@ class CmdStatus(Command):
                 The second column shows the working copy status:
                     ' ' no changes
                     'M' local modifications or untracked files
+                    '>' your local branch is ahead of the remote one
                 The third column shows the development status:
                     ' ' activated
                     '-' deactivated
@@ -662,7 +682,7 @@ class CmdStatus(Command):
             source = self.develop.sources[name]
             if not source.exists():
                 if name in auto_checkout:
-                    print "!", " ", name
+                    print "!", " ", " ", name
                 continue
             paths.append(source['path'])
             if not workingcopies.matches(source):
@@ -678,6 +698,8 @@ class CmdStatus(Command):
                 status = workingcopies.status(source)
             if status == 'clean':
                 print " ",
+            elif status == 'ahead':
+                print ">",
             else:
                 print "M",
             if self.develop.config.develop.get(name, name in auto_checkout):
@@ -715,21 +737,21 @@ class CmdStatus(Command):
                 output = output.strip()
                 if output:
                     for line in output.split('\n'):
-                        print "   ", line
+                        print " ", " ", " ", line
                     print
 
         # Only report on unknown entries when we have no package regexp.
         if not package_regexp:
             for entry in os.listdir(sources_dir):
                 if not os.path.join(sources_dir, entry) in paths:
-                    print '?', ' ', entry
+                    print "?", " ", " ", entry
 
 
 class CmdUpdate(Command):
     def __init__(self, develop):
         Command.__init__(self, develop)
-        description="Updates all known packages currently checked out."
-        self.parser=self.develop.parsers.add_parser(
+        description = "Updates all known packages currently checked out."
+        self.parser = self.develop.parsers.add_parser(
             "update",
             description=description)
         self.develop.parsers._name_parser_map["up"] = self.develop.parsers._name_parser_map["update"]
@@ -761,6 +783,7 @@ class CmdUpdate(Command):
         workingcopies.update(sorted(packages),
                              force=force,
                              verbose=args.verbose,
+                             submodules=self.develop.update_git_submodules,
                              always_accept_server_certificate=self.develop.always_accept_server_certificate)
 
 
@@ -814,8 +837,10 @@ class Develop(object):
         self.sources_dir = extension.get_sources_dir()
         self.auto_checkout = extension.get_auto_checkout()
         self.always_checkout = extension.get_always_checkout()
+        self.update_git_submodules = extension.get_update_git_submodules()
         self.always_accept_server_certificate = extension.get_always_accept_server_certificate()
         develop, self.develeggs, versions = extension.get_develop_info()
+        self.threads = extension.get_threads()
 
         args.func(args)
 

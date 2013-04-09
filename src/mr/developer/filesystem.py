@@ -3,8 +3,10 @@ import os
 
 logger = common.logger
 
+
 class FilesystemError(common.WCError):
     pass
+
 
 class FilesystemWorkingCopy(common.BaseWorkingCopy):
     def checkout(self, **kwargs):
@@ -38,5 +40,3 @@ class FilesystemWorkingCopy(common.BaseWorkingCopy):
                 'Expected %r.' % (name, self.source['url']))
         self.output((logger.info, 'Filesystem package %r doesn\'t need update.' % name))
         return ''
-
-common.workingcopytypes['fs'] = FilesystemWorkingCopy
